@@ -630,7 +630,7 @@ function Elements.Slider(parent, ctx, cfg)
     titleBlock(wrap, cfg.Name or "Slider", cfg.Description, 64)
     local valueLbl = label({ Text = "", TextSize = 14, TextColor3 = C.SubText, TextXAlignment = Enum.TextXAlignment.Right, TextYAlignment = Enum.TextYAlignment.Top, AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.fromOffset(64, 17), Parent = wrap })
     local hit = create("TextButton", { AutoButtonColor = false, Text = "", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 1, -16), Parent = wrap })
-    local bar = create("Frame", { BackgroundColor3 = C.Element, Size = UDim2.new(1, 0, 0, 6), Position = UDim2.fromScale(0, 0.5), AnchorPoint = Vector2.new(0, 0.5), Parent = hit }, { corner(3), stroke() })
+    local bar = create("Frame", { BackgroundColor3 = C.Element, Size = UDim2.new(1, -18, 0, 6), Position = UDim2.new(0, 9, 0.5, 0), AnchorPoint = Vector2.new(0, 0.5), Parent = hit }, { corner(3), stroke() })
     local fill = create("Frame", { BackgroundColor3 = Library.Theme.Accent, BorderSizePixel = 0, Size = UDim2.fromScale(0, 1), Parent = bar }, { corner(3) })
     local knob = create("Frame", { BackgroundColor3 = Library.Theme.Accent, Size = UDim2.fromOffset(14, 14), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5), Parent = bar }, { corner(7) })
     local kscale = create("UIScale", { Parent = knob })
@@ -2184,8 +2184,9 @@ function Library:CreateWindow(cfg)
 
     local HttpService = game:GetService("HttpService")
     local ROOT = "BeaglewareUI"
-    local hubFolder = ROOT .. "/" .. (tostring(cfg.Title or "Hub"):gsub("[^%w%-_ ]", ""))
-    local themeFolder = ROOT .. "/Themes"
+    local hubFolder = ROOT .. "/" .. (tostring(cfg.Folder or cfg.Title or "Hub"):gsub("[^%w%-_ ]", ""))
+    local themeFolder = hubFolder .. "/Themes"
+    local configFolder = hubFolder .. "/Configs"
     local canSave = typeof(writefile) == "function" and typeof(readfile) == "function" and typeof(isfile) == "function"
     local function ensure(path)
         if typeof(makefolder) ~= "function" or typeof(isfolder) ~= "function" then return end
@@ -2205,6 +2206,7 @@ function Library:CreateWindow(cfg)
         table.sort(out)
         return out
     end
+    if canSave then ensure(configFolder) ensure(themeFolder) end
     local settingsPath = hubFolder .. "/settings.json"
     local stored = {}
     if canSave then
@@ -2241,20 +2243,20 @@ function Library:CreateWindow(cfg)
         local function saveConfig(name)
             if not canSave then Library:Notify("Configs", "Your executor can't save files.", "Error") return false end
             if not name or name:gsub("%s", "") == "" then Library:Notify("Configs", "Type a name for the config first.", "Warning") return false end
-            ensure(hubFolder)
+            ensure(configFolder)
             local data = { Elements = {}, Theme = {}, Appearance = { Mode = Library.Appearance.Mode, Custom = Library.Appearance.Custom } }
             for key, item in pairs(Window.Savable) do
                 local ok, v = pcall(encodeValue, item)
                 if ok then data.Elements[key] = v end
             end
             for k, v in pairs(Library.Theme) do data.Theme[k] = typeof(v) == "Color3" and ("#" .. toHex(v)) or v end
-            writefile(hubFolder .. "/" .. name .. ".json", HttpService:JSONEncode(data))
+            writefile(configFolder .. "/" .. name .. ".json", HttpService:JSONEncode(data))
             return true
         end
         local afterLoad = {}
         local function loadConfig(name)
             if not canSave then Library:Notify("Configs", "Your executor can't read files.", "Error") return false end
-            local path = hubFolder .. "/" .. tostring(name) .. ".json"
+            local path = configFolder .. "/" .. tostring(name) .. ".json"
             if not name or not isfile(path) then Library:Notify("Configs", "Pick a saved config first.", "Warning") return false end
             local ok, data = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
             if not ok or typeof(data) ~= "table" then Library:Notify("Configs", "That config file is broken.", "Error") return false end
@@ -2281,17 +2283,16 @@ function Library:CreateWindow(cfg)
         local cfgSec = tab:Section("Configs", "Left")
         local nameBox = cfgSec:AddTextbox({ Name = "Config name", Placeholder = "e.g. farming", NoSave = true })
         local picked
-        local listDrop = cfgSec:AddDropdown({ Name = "Saved configs", Options = listJson(hubFolder), NoSave = true, Callback = function(v) picked = v nameBox:Set(v) end })
+        local listDrop = cfgSec:AddDropdown({ Name = "Saved configs", Options = listJson(configFolder), NoSave = true, Callback = function(v) picked = v nameBox:Set(v) end })
         local function listConfigs()
             local out = {}
-            for _, n in ipairs(listJson(hubFolder)) do if n ~= "settings" then table.insert(out, n) end end
+            for _, n in ipairs(listJson(configFolder)) do table.insert(out, n) end
             return out
         end
         listDrop:Refresh(listConfigs())
         local function refresh() listDrop:Refresh(listConfigs()) picked = nil end
         cfgSec:AddButton({ Name = "Save config", Callback = function()
             local name = nameBox:Get()
-            if name == "settings" then Library:Notify("Configs", "That name is reserved. Pick another one.", "Warning") return end
             if saveConfig(name) then refresh() listDrop:Set(name, true) picked = name Library:Notify("Config saved", name .. " was saved.", "Success") end
         end })
         cfgSec:AddButton({ Name = "Load config", Callback = function()
@@ -2299,7 +2300,7 @@ function Library:CreateWindow(cfg)
         end })
         cfgSec:AddButton({ Name = "Delete config", Callback = function()
             if not picked then Library:Notify("Configs", "Pick a saved config first.", "Warning") return end
-            if typeof(delfile) == "function" then pcall(delfile, hubFolder .. "/" .. picked .. ".json") end
+            if typeof(delfile) == "function" then pcall(delfile, configFolder .. "/" .. picked .. ".json") end
             Library:Notify("Config deleted", picked .. " was removed.", "Info")
             refresh()
         end })
@@ -2310,6 +2311,7 @@ function Library:CreateWindow(cfg)
             Callback = function(on)
                 if not canSave then return end
                 ensure(hubFolder)
+                ensure(configFolder)
                 if on then
                     if not picked then Library:Notify("Configs", "Pick a saved config first.", "Warning") return end
                     writefile(autoPath, picked)
