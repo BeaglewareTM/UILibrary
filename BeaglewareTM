@@ -1636,29 +1636,6 @@ function Library:CreateWindow(cfg)
 
         local function closePopup() if popup then popup:Destroy() popup = nil end end
         table.insert(Window.Popups, closePopup)
-        local function openTagMenu(plr, anchorBtn, onPick)
-            closePopup()
-            local cur = Window:GetTag(plr)
-            local menu = create("Frame", { BackgroundColor3 = C.Element, Size = UDim2.fromOffset(124, 0), AutomaticSize = Enum.AutomaticSize.Y, ZIndex = 95,
-                Position = UDim2.fromOffset(anchorBtn.AbsolutePosition.X + anchorBtn.AbsoluteSize.X - 124, anchorBtn.AbsolutePosition.Y + anchorBtn.AbsoluteSize.Y + 4), Parent = gui }, { corner(7), stroke(), pad(4), list(2) })
-            popup = menu
-            for i, t in ipairs({ "Neutral", "Whitelist", "Enemy" }) do
-                local b = create("TextButton", { AutoButtonColor = false, Text = t, Font = FONT, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
-                    TextColor3 = t == cur and C.Text or C.SubText, BackgroundColor3 = C.Active, BackgroundTransparency = t == cur and 0 or 1,
-                    Size = UDim2.new(1, 0, 0, 28), LayoutOrder = i, ZIndex = 96, Parent = menu }, { corner(5), pad(0, 8, 0, 8) })
-                b.MouseEnter:Connect(function() if t ~= cur then tween(b, 0.12, { BackgroundTransparency = 0.5 }) end end)
-                b.MouseLeave:Connect(function() if t ~= cur then tween(b, 0.12, { BackgroundTransparency = 1 }) end end)
-                b.MouseButton1Click:Connect(function() closePopup() onPick(t) end)
-            end
-        end
-        conn(UserInputService.InputBegan:Connect(function(input)
-            if popup and input.UserInputType == Enum.UserInputType.MouseButton1 then
-                local m = UserInputService:GetMouseLocation()
-                local p0, sz = popup.AbsolutePosition, popup.AbsoluteSize
-                if not (m.X >= p0.X and m.X <= p0.X + sz.X and m.Y >= p0.Y and m.Y <= p0.Y + sz.Y) then task.defer(closePopup) end
-            end
-        end))
-
         local function smallButton(parent, text, order, width)
             local b = create("TextButton", { AutoButtonColor = false, Text = text, Font = FONT, TextSize = 12, TextColor3 = C.Text, BackgroundColor3 = C.Element, Size = UDim2.fromOffset(width or 74, 28), LayoutOrder = order, Parent = parent }, { corner(6) })
             local st = stroke() st.Parent = b
@@ -1670,7 +1647,13 @@ function Library:CreateWindow(cfg)
         local function addRow(plr)
             if rows[plr] then return end
             local isYou = plr == LocalPlayer
-            local row = create("TextButton", { AutoButtonColor = false, Text = "", BackgroundColor3 = Color3.fromRGB(29, 29, 34), BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 48), LayoutOrder = isYou and 0 or 1, Parent = rowsFrame }, { corner(6) })
+            local holder = create("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = isYou and 0 or 1, Parent = rowsFrame }, { list(0) })
+            local row = create("TextButton", { AutoButtonColor = false, Text = "", BackgroundColor3 = Color3.fromRGB(29, 29, 34), BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 48), LayoutOrder = 1, Parent = holder }, { corner(6) })
+            local tagPanel = collapsible(holder, false, 2)
+            local tagRow = create("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 40), Parent = tagPanel.Inner })
+            local tagOpts = create("Frame", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 4), Size = UDim2.fromOffset(0, 30), AutomaticSize = Enum.AutomaticSize.X, Parent = tagRow },
+                { create("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }) })
+            label({ Text = "Set tag:", TextSize = 12, TextColor3 = C.Muted, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8 - 3 * 92 - 2 * 6 - 10, 0, 4), Size = UDim2.fromOffset(60, 30), TextXAlignment = Enum.TextXAlignment.Right, Parent = tagRow })
 
             create("ImageLabel", { BackgroundColor3 = C.Element, Size = UDim2.fromOffset(34, 34), Position = UDim2.new(0, 8, 0.5, 0), AnchorPoint = Vector2.new(0, 0.5),
                 Image = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=60&h=60", Parent = row }, { corner(17) })
@@ -1692,11 +1675,32 @@ function Library:CreateWindow(cfg)
             local specBtn, specStroke = smallButton(right, "Spectate", 3, 72)
             if isYou then tpBtn.Visible, specBtn.Visible, tagBtn.Visible = false, false, false end
 
-            local r = { Row = row, Player = plr, Sub = sub }
+            local r = { Row = holder, Player = plr, Sub = sub }
+            local optButtons = {}
+            for i, t in ipairs({ "Neutral", "Whitelist", "Enemy" }) do
+                local ob = create("TextButton", { AutoButtonColor = false, Text = t, Font = FONT_MED, TextSize = 12, TextColor3 = C.Text, BackgroundColor3 = C.Element, Size = UDim2.fromOffset(92, 30), LayoutOrder = i, Parent = tagOpts }, { corner(6) })
+                local os = stroke() os.Parent = ob
+                optButtons[t] = { B = ob, S = os }
+                ob.MouseButton1Click:Connect(function()
+                    Window.PlayerTags[plr.UserId] = t ~= "Neutral" and t or nil
+                    r.PaintTag()
+                    tagPanel:Set(false)
+                    refreshInfo()
+                    if pcfg.OnTag then task.spawn(pcfg.OnTag, plr, t) end
+                    Library:Notify("Player tag", plr.DisplayName .. " is now " .. t .. ".", t == "Enemy" and "Warning" or t == "Whitelist" and "Success" or "Info")
+                end)
+            end
+            r.OptButtons = optButtons
             function r.PaintTag()
                 local t = Window:GetTag(plr)
                 tagText.Text = t
                 tagStroke.Color = t == "Neutral" and C.Stroke or TAG_COLORS[t]
+                for name, o in pairs(r.OptButtons or {}) do
+                    local on = name == t
+                    o.B.BackgroundColor3 = on and C.Active or C.Element
+                    o.S.Color = on and (name == "Neutral" and C.Muted or TAG_COLORS[name]) or C.Stroke
+                    o.B.TextColor3 = on and C.Text or C.SubText
+                end
             end
             function r.PaintSpec()
                 local on = spectating == plr
@@ -1724,14 +1728,11 @@ function Library:CreateWindow(cfg)
                 end
             end)
             tagBtn.MouseButton1Click:Connect(function()
-                openTagMenu(plr, tagBtn, function(t)
-                    Window.PlayerTags[plr.UserId] = t ~= "Neutral" and t or nil
-                    r.PaintTag()
-                    refreshInfo()
-                    if pcfg.OnTag then task.spawn(pcfg.OnTag, plr, t) end
-                    Library:Notify("Player tag", plr.DisplayName .. " is now " .. t .. ".", t == "Enemy" and "Warning" or t == "Whitelist" and "Success" or "Info")
-                end)
+                local open = not tagPanel.Open
+                for _, other in pairs(rows) do if other.TagPanel and other ~= r then other.TagPanel:Set(false) end end
+                tagPanel:Set(open)
             end)
+            r.TagPanel = tagPanel
             specBtn.MouseButton1Click:Connect(function()
                 local was = spectating == plr
                 if was then setSpectate(nil) else setSpectate(plr) end
