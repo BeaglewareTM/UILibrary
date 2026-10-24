@@ -135,9 +135,8 @@ end
 
 local FONT, FONT_MED, FONT_BOLD = Enum.Font.Gotham, Enum.Font.GothamMedium, Enum.Font.GothamBold
 
-local paintReg = setmetatable({}, { __mode = "k" })
-local alphaReg = setmetatable({}, { __mode = "k" })
-local textReg = setmetatable({}, { __mode = "k" })
+local themedGuis = {}
+local fxGradients = {}
 local COLOR_PROPS = { "BackgroundColor3", "TextColor3", "Color", "PlaceholderColor3", "ScrollBarImageColor3" }
 local textFx = { Style = "Solid", Second = Color3.fromRGB(255, 126, 185), Direction = 90, Hue = 0 }
 
@@ -158,6 +157,7 @@ local function applyTextFx(obj)
         g.Name = "_TextFx"
         g.Parent = obj
     end
+    table.insert(fxGradients, g)
     if textFx.Style == "Gradient" then
         g.Color = ColorSequence.new(C.Text, textFx.Second)
         g.Rotation = textFx.Direction - 90
@@ -172,16 +172,15 @@ local function track(obj, props)
         if typeof(v) == "Color3" then
             local r = roleOf(v)
             if r then
-                paintReg[obj] = paintReg[obj] or {}
-                paintReg[obj][k] = r
+                obj:SetAttribute("_c_" .. k, r)
                 if k == "BackgroundColor3" and GLASS_ROLES[r] and (props.BackgroundTransparency == nil or props.BackgroundTransparency == 0) then
-                    alphaReg[obj] = { "BackgroundTransparency", r }
+                    obj:SetAttribute("_a_BackgroundTransparency", r)
                     obj.BackgroundTransparency = Alpha[r]
                 elseif k == "Color" and STROKE_ROLES[r] and obj:IsA("UIStroke") and (props.Transparency == nil or props.Transparency == 0) then
-                    alphaReg[obj] = { "Transparency", r }
+                    obj:SetAttribute("_a_Transparency", r)
                     obj.Transparency = Alpha[r]
                 elseif k == "TextColor3" and r == "Text" then
-                    textReg[obj] = true
+                    obj:SetAttribute("_txt", true)
                     if textFx.Style ~= "Solid" then applyTextFx(obj) end
                 end
             end
@@ -223,22 +222,34 @@ local function applyPalette()
     textFx.Style = cu and cu.TextStyle or "Solid"
     textFx.Second = cu and hex(cu.SecondColor) or textFx.Second
     textFx.Direction = cu and tonumber(cu.Direction) or 90
-    for obj, props in pairs(paintReg) do
-        pcall(function() for k, r in pairs(props) do obj[k] = C[r] end end)
+    table.clear(fxGradients)
+    for gui in pairs(themedGuis) do
+        if gui.Parent then
+            local list = gui:GetDescendants()
+            for _, obj in ipairs(list) do
+                for _, k in ipairs(COLOR_PROPS) do
+                    local r = obj:GetAttribute("_c_" .. k)
+                    if r and C[r] then pcall(function() obj[k] = C[r] end) end
+                end
+                local ab = obj:GetAttribute("_a_BackgroundTransparency")
+                if ab then pcall(function() obj.BackgroundTransparency = Alpha[ab] end) end
+                local at = obj:GetAttribute("_a_Transparency")
+                if at then pcall(function() obj.Transparency = Alpha[at] end) end
+                if obj:GetAttribute("_txt") then pcall(applyTextFx, obj) end
+            end
+        else
+            themedGuis[gui] = nil
+        end
     end
-    for obj, a in pairs(alphaReg) do
-        pcall(function() obj[a[1]] = Alpha[a[2]] end)
-    end
-    for obj in pairs(textReg) do pcall(applyTextFx, obj) end
 end
 
 RunService.RenderStepped:Connect(function(dt)
     if textFx.Style ~= "RGB" then return end
     textFx.Hue = (textFx.Hue + dt / 3) % 1
     local seq = ColorSequence.new(Color3.fromHSV(textFx.Hue, 0.55, 1))
-    for obj in pairs(textReg) do
-        local g = obj.Parent and obj:FindFirstChild("_TextFx")
-        if g then g.Color = seq end
+    for i = #fxGradients, 1, -1 do
+        local g = fxGradients[i]
+        if g.Parent then g.Color = seq else table.remove(fxGradients, i) end
     end
 end)
 
@@ -1010,6 +1021,7 @@ function Library:CreateWindow(cfg)
 
     local gui = create("ScreenGui", { Name = instanceKey, ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 999, Parent = getParentGui() })
     Window.Gui = gui
+    themedGuis[gui] = true
     notifyHolder = create("Frame", { Name = "Notifications", BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -18, 1, -18), Size = UDim2.fromOffset(280, 420), ZIndex = 50, Parent = gui },
         { create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Bottom }) })
 
@@ -1795,19 +1807,6 @@ function Library:CreateWindow(cfg)
         end))
     end
 
-    Window.ReloadOnTeleport = cfg.ReloadOnTeleport ~= false
-    do
-        local queue = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
-        local queued = false
-        conn(LocalPlayer.OnTeleport:Connect(function(state)
-            if state == Enum.TeleportState.Failed then queued = false return end
-            if state ~= Enum.TeleportState.Started or queued or not Window.ReloadOnTeleport or not cfg.Reload or typeof(queue) ~= "function" then return end
-            local src = tostring(cfg.Reload)
-            if src:match("^https?://") then src = string.format("loadstring(game:HttpGet(%q))()", src) end
-            queued = pcall(queue, src)
-        end))
-        Window.CanReload = typeof(queue) == "function"
-    end
     function Window:Hide() setShown(false) end
     function Window:Show() setShown(true) end
     minBtn.MouseButton1Click:Connect(function()
@@ -2219,7 +2218,6 @@ function Library:CreateWindow(cfg)
         pcall(writefile, settingsPath, HttpService:JSONEncode(stored))
     end
     if stored.MobileButton then Window:SetMobileButton(stored.MobileButton) end
-    if stored.Reload ~= nil then Window.ReloadOnTeleport = stored.Reload == true end
 
     function Window:Settings(scfg)
         scfg = scfg or {}
@@ -2326,20 +2324,6 @@ function Library:CreateWindow(cfg)
                 else Library:Notify("Menu key", "No key set. Click the box to pick one.", "Warning") end
             end })
         end
-
-        local hop = tab:Section("Server hop", "Right")
-        hop:AddToggle({ Name = "Reload on teleport", Description = "Opens the menu again after you join a new server", NoSave = true, Default = Window.ReloadOnTeleport,
-            Callback = function(on)
-                Window.ReloadOnTeleport = on
-                storeSetting("Reload", on)
-                if on and not cfg.Reload then
-                    Library:Notify("Server hop", "Add Reload to your window settings to use this.", "Warning")
-                elseif on and not Window.CanReload then
-                    Library:Notify("Server hop", "Your executor can't queue scripts on teleport.", "Warning")
-                else
-                    Library:Notify("Server hop", on and "The menu will reload after a teleport." or "The menu won't reload after a teleport.", "Info")
-                end
-            end })
 
         if Window.IsMobile then
             local mob = tab:Section("Mobile", "Right")
