@@ -135,9 +135,16 @@ end
 
 local FONT, FONT_MED, FONT_BOLD = Enum.Font.Gotham, Enum.Font.GothamMedium, Enum.Font.GothamBold
 
-local paintReg = setmetatable({}, { __mode = "k" })
-local alphaReg = setmetatable({}, { __mode = "k" })
-local textReg = setmetatable({}, { __mode = "k" })
+local paintReg, alphaReg, textReg = {}, {}, {}
+local function alive(obj)
+    local ok, p = pcall(function() return obj.Parent end)
+    return ok and p ~= nil
+end
+local function prune()
+    for obj in pairs(paintReg) do if not alive(obj) then paintReg[obj] = nil end end
+    for obj in pairs(alphaReg) do if not alive(obj) then alphaReg[obj] = nil end end
+    for obj in pairs(textReg) do if not alive(obj) then textReg[obj] = nil end end
+end
 local COLOR_PROPS = { "BackgroundColor3", "TextColor3", "Color", "PlaceholderColor3", "ScrollBarImageColor3" }
 local textFx = { Style = "Solid", Second = Color3.fromRGB(255, 126, 185), Direction = 90, Hue = 0 }
 
@@ -223,6 +230,7 @@ local function applyPalette()
     textFx.Style = cu and cu.TextStyle or "Solid"
     textFx.Second = cu and hex(cu.SecondColor) or textFx.Second
     textFx.Direction = cu and tonumber(cu.Direction) or 90
+    prune()
     for obj, props in pairs(paintReg) do
         pcall(function() for k, r in pairs(props) do obj[k] = C[r] end end)
     end
@@ -232,6 +240,11 @@ local function applyPalette()
     for obj in pairs(textReg) do pcall(applyTextFx, obj) end
 end
 
+local pruneClock = 0
+RunService.Heartbeat:Connect(function(dt)
+    pruneClock += dt
+    if pruneClock > 10 then pruneClock = 0 prune() end
+end)
 RunService.RenderStepped:Connect(function(dt)
     if textFx.Style ~= "RGB" then return end
     textFx.Hue = (textFx.Hue + dt / 3) % 1
@@ -1795,19 +1808,6 @@ function Library:CreateWindow(cfg)
         end))
     end
 
-    Window.ReloadOnTeleport = cfg.ReloadOnTeleport ~= false
-    do
-        local queue = (syn and syn.queue_on_teleport) or queue_on_teleport or queueonteleport or (fluxus and fluxus.queue_on_teleport)
-        local queued = false
-        conn(LocalPlayer.OnTeleport:Connect(function(state)
-            if state == Enum.TeleportState.Failed then queued = false return end
-            if state ~= Enum.TeleportState.Started or queued or not Window.ReloadOnTeleport or not cfg.Reload or typeof(queue) ~= "function" then return end
-            local src = tostring(cfg.Reload)
-            if src:match("^https?://") then src = string.format("loadstring(game:HttpGet(%q))()", src) end
-            queued = pcall(queue, src)
-        end))
-        Window.CanReload = typeof(queue) == "function"
-    end
     function Window:Hide() setShown(false) end
     function Window:Show() setShown(true) end
     minBtn.MouseButton1Click:Connect(function()
@@ -2219,7 +2219,6 @@ function Library:CreateWindow(cfg)
         pcall(writefile, settingsPath, HttpService:JSONEncode(stored))
     end
     if stored.MobileButton then Window:SetMobileButton(stored.MobileButton) end
-    if stored.Reload ~= nil then Window.ReloadOnTeleport = stored.Reload == true end
 
     function Window:Settings(scfg)
         scfg = scfg or {}
@@ -2326,20 +2325,6 @@ function Library:CreateWindow(cfg)
                 else Library:Notify("Menu key", "No key set. Click the box to pick one.", "Warning") end
             end })
         end
-
-        local hop = tab:Section("Server hop", "Right")
-        hop:AddToggle({ Name = "Reload on teleport", Description = "Opens the menu again after you join a new server", NoSave = true, Default = Window.ReloadOnTeleport,
-            Callback = function(on)
-                Window.ReloadOnTeleport = on
-                storeSetting("Reload", on)
-                if on and not cfg.Reload then
-                    Library:Notify("Server hop", "Add Reload to your window settings to use this.", "Warning")
-                elseif on and not Window.CanReload then
-                    Library:Notify("Server hop", "Your executor can't queue scripts on teleport.", "Warning")
-                else
-                    Library:Notify("Server hop", on and "The menu will reload after a teleport." or "The menu won't reload after a teleport.", "Info")
-                end
-            end })
 
         if Window.IsMobile then
             local mob = tab:Section("Mobile", "Right")
